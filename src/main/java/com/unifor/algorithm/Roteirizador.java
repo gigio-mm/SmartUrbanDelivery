@@ -1,9 +1,11 @@
 package com.unifor.algorithm;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import com.unifor.model.Cliente;
 import com.unifor.model.Ponto;
+import com.unifor.model.Rota;
 import com.unifor.model.Veiculo;
 import com.unifor.util.Distancia;
 
@@ -16,6 +18,82 @@ public class Roteirizador {
      * Construtor padrão.
      */
     public Roteirizador() {
+    }
+
+    /**
+     * Calcula a rota de entrega otimizada utilizando algoritmo guloso.
+     * 
+     * O algoritmo segue estas etapas:
+     * 1. Ordena os clientes por prioridade (decrescente) usando QuickSort
+     * 2. Seleciona iterativamente o vizinho mais próximo que satisfaz as restrições
+     * 3. Atualiza o veículo (carga e autonomia) a cada parada
+     * 4. Adiciona o retorno à central ao final da rota
+     * 
+     * @param clientes Lista de clientes a serem atendidos
+     * @param veiculo Veículo que realizará as entregas
+     * @param central Ponto da central de distribuição
+     * @return Rota calculada com os clientes visitados, distância total e carga coletada
+     */
+    public Rota calcularRota(List<Cliente> clientes, Veiculo veiculo, Ponto central) {
+        // Validações de entrada
+        if (clientes == null || veiculo == null || central == null) {
+            return new Rota();
+        }
+
+        // PREPARAÇÃO: Criar nova rota e configurar estado inicial
+        Rota rota = new Rota();
+        Ponto localAtual = central;
+        
+        // Criar cópia da lista de clientes para não modificar a original
+        List<Cliente> naoVisitados = new ArrayList<>(clientes);
+
+        // ORDENAÇÃO INICIAL: Ordenar por prioridade decrescente (REQUISITO)
+        Ordenacao.quickSort(naoVisitados);
+
+        // LOOP GULOSO: Processar clientes até que não haja mais candidatos viáveis
+        while (!naoVisitados.isEmpty()) {
+            // Encontrar o próximo cliente mais próximo que satisfaz as restrições
+            Cliente proximoCliente = encontrarVizinhoMaisProximo(localAtual, naoVisitados, veiculo, central);
+
+            // Se nenhum cliente for viável, interromper o loop
+            if (proximoCliente == null) {
+                break;
+            }
+
+            // Calcular distância até o próximo cliente
+            double distanciaPercorrida = Distancia.calcularDistanciaEuclidiana(
+                localAtual, 
+                proximoCliente.getLocalizacao()
+            );
+
+            // Adicionar cliente à rota
+            rota.adicionarCliente(proximoCliente);
+
+            // Atualizar veículo: aumentar carga e diminuir autonomia
+            veiculo.adicionarCarga(proximoCliente.getDemandaCarga());
+            veiculo.consumirAutonomia(distanciaPercorrida);
+
+            // Atualizar distância total da rota
+            rota.setDistanciaTotal(rota.getDistanciaTotal() + distanciaPercorrida);
+
+            // Atualizar localização atual
+            localAtual = proximoCliente.getLocalizacao();
+
+            // Remover cliente da lista de não visitados
+            naoVisitados.remove(proximoCliente);
+        }
+
+        // RETORNO À BASE: Calcular trajeto de volta para a central
+        double distanciaRetorno = Distancia.calcularDistanciaEuclidiana(localAtual, central);
+        
+        // Atualizar autonomia do veículo com o retorno
+        veiculo.consumirAutonomia(distanciaRetorno);
+        
+        // Atualizar distância total da rota com o retorno
+        rota.setDistanciaTotal(rota.getDistanciaTotal() + distanciaRetorno);
+
+        // Retornar rota completa
+        return rota;
     }
 
     /**
@@ -33,8 +111,7 @@ public class Roteirizador {
      * @param central Ponto da central de distribuição (para cálculo de retorno)
      * @return O cliente mais próximo que satisfaz todas as restrições, ou null se nenhum for viável
      */
-    private Cliente encontrarVizinhoMaisProximo(Ponto localAtual, List<Cliente> naoVisitados, 
-                                                 Veiculo veiculo, Ponto central) {
+    private Cliente encontrarVizinhoMaisProximo(Ponto localAtual, List<Cliente> naoVisitados, Veiculo veiculo, Ponto central) {
         if (localAtual == null || naoVisitados == null || veiculo == null || central == null) {
             return null;
         }
