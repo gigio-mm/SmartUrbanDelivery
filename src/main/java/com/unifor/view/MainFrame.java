@@ -119,7 +119,7 @@ public class MainFrame extends JFrame {
         painel.setBackground(new Color(40, 40, 40));
         painel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         
-        JLabel titulo = new JLabel("🚚 Smart Urban Delivery - Sistema de Roteirização");
+        JLabel titulo = new JLabel("Smart Urban Delivery - Sistema de Roteirização");
         titulo.setFont(new Font("Arial", Font.BOLD, 20));
         titulo.setForeground(Color.WHITE);
         
@@ -402,7 +402,7 @@ public class MainFrame extends JFrame {
         relatorio.append(String.format("- Taxa de atendimento: %.1f%%\n\n", 
             percentualAtendimento));
         
-        relatorio.append("🚚 LOGÍSTICA:\n");
+        relatorio.append("LOGÍSTICA:\n");
         relatorio.append(String.format("- Distância total: %.2f unidades\n", distanciaTotal));
         relatorio.append(String.format("- Carga coletada: %.2f unidades\n", cargaTotal));
         relatorio.append(String.format("- Capacidade veículo: %.0f unidades\n", 
