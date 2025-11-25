@@ -72,8 +72,8 @@ public class Main {
         // Capturar tempo inicial
         long tempoInicio = System.nanoTime();
         
-        // Executar cálculo da rota
-        Rota rota = roteirizador.calcularRota(clientes, veiculo, pontoCentral);
+        // Executar cálculo das rotas (NOVO: múltiplas viagens)
+        List<Rota> rotas = roteirizador.calcularRotas(clientes, veiculo, pontoCentral);
         
         // Capturar tempo final
         long tempoFim = System.nanoTime();
@@ -83,81 +83,91 @@ public class Main {
         
         // ===== SAÍDA FORMATADA =====
         
-        System.out.println("=== ROTA OTIMIZADA (Heurística do Vizinho Mais Próximo) ===");
+        System.out.println("=== ROTAS OTIMIZADAS (Heurística do Vizinho Mais Próximo) ===");
         System.out.printf("Tempo de Execução: %.3f ms%n", tempoExecucao);
+        System.out.printf("Número de Viagens: %d%n", rotas.size());
         System.out.println();
         
-        // Exibir partida da central
-        System.out.printf("-> Veículo partindo da Central (%.1f, %.1f)%n", 
-            pontoCentral.getX(), pontoCentral.getY());
-        System.out.println();
+        // Variáveis para totais
+        double distanciaTotalGeral = 0;
+        double cargaTotalGeral = 0;
+        int clientesTotalAtendidos = 0;
+        int contadorGlobal = 1;
         
-        // Exibir clientes atendidos na rota
-        List<Cliente> clientesAtendidos = rota.getPontos();
-        Ponto pontoAnterior = pontoCentral;
-        
-        for (int i = 0; i < clientesAtendidos.size(); i++) {
-            Cliente cliente = clientesAtendidos.get(i);
-            Ponto locCliente = cliente.getLocalizacao();
+        // Exibir cada viagem
+        for (int viagemIndex = 0; viagemIndex < rotas.size(); viagemIndex++) {
+            Rota rota = rotas.get(viagemIndex);
+            List<Cliente> clientesAtendidos = rota.getPontos();
             
-            // Calcular distância do ponto anterior até este cliente
-            double distancia = Math.sqrt(
-                Math.pow(locCliente.getX() - pontoAnterior.getX(), 2) + 
-                Math.pow(locCliente.getY() - pontoAnterior.getY(), 2)
-            );
+            System.out.println("────────────────────────────────────────");
+            System.out.printf("🚚 VIAGEM %d de %d%n", viagemIndex + 1, rotas.size());
+            System.out.println("────────────────────────────────────────");
             
-            System.out.printf("%d. Cliente [%d] | Prioridade: %d | Local: (%.1f, %.1f) | Carga: %.1f kg | Dist: %.2f km%n",
-                i + 1,
-                clientes.indexOf(cliente) + 1,  // ID baseado na posição original
-                cliente.getPrioridade(),
-                locCliente.getX(),
-                locCliente.getY(),
-                cliente.getDemandaCarga(),
-                distancia
-            );
+            // Exibir partida da central
+            System.out.printf("-> Veículo partindo da Central (%.1f, %.1f)%n", 
+                pontoCentral.getX(), pontoCentral.getY());
+            System.out.println();
             
-            pontoAnterior = locCliente;
+            Ponto pontoAnterior = pontoCentral;
+            
+            for (int i = 0; i < clientesAtendidos.size(); i++) {
+                Cliente cliente = clientesAtendidos.get(i);
+                Ponto locCliente = cliente.getLocalizacao();
+                
+                // Calcular distância do ponto anterior até este cliente
+                double distancia = Math.sqrt(
+                    Math.pow(locCliente.getX() - pontoAnterior.getX(), 2) + 
+                    Math.pow(locCliente.getY() - pontoAnterior.getY(), 2)
+                );
+                
+                System.out.printf("%d. Cliente [%d] | Prioridade: %d | Local: (%.1f, %.1f) | Carga: %.1f kg | Dist: %.2f km%n",
+                    contadorGlobal,
+                    clientes.indexOf(cliente) + 1,  // ID baseado na posição original
+                    cliente.getPrioridade(),
+                    locCliente.getX(),
+                    locCliente.getY(),
+                    cliente.getDemandaCarga(),
+                    distancia
+                );
+                
+                pontoAnterior = locCliente;
+                contadorGlobal++;
+            }
+            
+            System.out.println();
+            
+            // Exibir retorno à central
+            System.out.printf("-> Retorno à Central (%.1f, %.1f)%n", 
+                pontoCentral.getX(), pontoCentral.getY());
+            System.out.printf("   Distância desta viagem: %.2f km | Carga entregue: %.2f kg%n",
+                rota.getDistanciaTotal(), rota.getCargaTotalColetada());
+            System.out.println();
+            
+            // Acumular totais
+            distanciaTotalGeral += rota.getDistanciaTotal();
+            cargaTotalGeral += rota.getCargaTotalColetada();
+            clientesTotalAtendidos += clientesAtendidos.size();
         }
-        
-        System.out.println();
-        
-        // Exibir retorno à central
-        System.out.printf("-> Retorno à Central (%.1f, %.1f)%n", 
-            pontoCentral.getX(), pontoCentral.getY());
-        System.out.println();
         
         // ===== RESUMO DA OPERAÇÃO =====
         
-        System.out.println("=== RESUMO DA OPERAÇÃO ===");
-        System.out.printf("Distância Total Percorrida: %.2f km%n", rota.getDistanciaTotal());
-        System.out.printf("Autonomia Restante: %.2f km%n", veiculo.getAutonomiaRestante());
-        System.out.printf("Carga Total Entregue: %.2f kg%n", rota.getCargaTotalColetada());
-        System.out.printf("Capacidade Restante: %.2f kg%n", 
-            veiculo.getCapacidadeMaxima() - veiculo.getCargaAtual());
-        System.out.printf("Clientes Atendidos: %d / %d%n", 
-            clientesAtendidos.size(), clientes.size());
+        System.out.println("════════════════════════════════════════");
+        System.out.println("=== RESUMO GERAL DA OPERAÇÃO ===");
+        System.out.println("════════════════════════════════════════");
+        System.out.printf("Total de Viagens Realizadas: %d%n", rotas.size());
+        System.out.printf("Distância Total Percorrida: %.2f km%n", distanciaTotalGeral);
+        System.out.printf("Carga Total Entregue: %.2f kg%n", cargaTotalGeral);
+        System.out.printf("Capacidade do Veículo: %.2f kg%n", veiculo.getCapacidadeMaxima());
+        System.out.printf("Autonomia do Veículo: %.2f km%n", veiculo.getAutonomiaMaxima());
+        System.out.printf("Clientes Atendidos: %d / %d%n", clientesTotalAtendidos, clientes.size());
         System.out.println();
         
-        // ===== CLIENTES NÃO ATENDIDOS =====
-        
-        // Identificar clientes não atendidos comparando lista original com rota
-        List<Cliente> clientesNaoAtendidos = new ArrayList<>();
-        for (Cliente cliente : clientes) {
-            if (!clientesAtendidos.contains(cliente)) {
-                clientesNaoAtendidos.add(cliente);
-            }
-        }
-        
-        if (!clientesNaoAtendidos.isEmpty()) {
-            System.out.println("Clientes Não Atendidos (Fora da Rota):");
-            for (Cliente cliente : clientesNaoAtendidos) {
-                System.out.printf("  - Cliente [%d] (Prioridade: %d)%n",
-                    clientes.indexOf(cliente) + 1,
-                    cliente.getPrioridade()
-                );
-            }
+        // Verificar se todos foram atendidos
+        if (clientesTotalAtendidos == clientes.size()) {
+            System.out.println("✅ TODOS OS CLIENTES FORAM ATENDIDOS COM SUCESSO!");
         } else {
-            System.out.println("✓ Todos os clientes foram atendidos!");
+            System.out.printf("⚠️ ATENÇÃO: %d cliente(s) não atendido(s)%n", 
+                clientes.size() - clientesTotalAtendidos);
         }
         
         System.out.println();

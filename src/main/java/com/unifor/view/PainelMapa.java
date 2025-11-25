@@ -23,6 +23,8 @@ import com.unifor.model.Rota;
  * Painel responsável por desenhar visualmente a simulação de roteirização.
  * Implementa transformação World-to-Screen com escalamento automático e responsivo.
  * 
+ * REFATORADO: Agora suporta múltiplas rotas (viagens) com cores diferentes.
+ * 
  * Sistema de Coordenadas:
  * - World Space: Coordenadas do domínio (ex: 0-100 ou -50 a 50)
  * - Screen Space: Pixels da tela com origem no canto superior esquerdo
@@ -42,17 +44,29 @@ public class PainelMapa extends JPanel {
     private static final Color COR_CENTRAL = new Color(64, 156, 255);      // Azul brilhante
     private static final Color COR_CLIENTE = new Color(255, 107, 107);     // Vermelho coral
     private static final Color COR_CLIENTE_PRIORITARIO = new Color(255, 69, 0); // Laranja forte
-    private static final Color COR_ROTA_IDA = new Color(72, 219, 109);     // Verde neon
-    private static final Color COR_ROTA_VOLTA = new Color(255, 184, 77);   // Laranja claro
     private static final Color COR_FUNDO = new Color(30, 30, 30);          // Cinza escuro
     private static final Color COR_GRID = new Color(50, 50, 50);           // Grid sutil
     private static final Color COR_TEXTO = new Color(220, 220, 220);       // Branco suave
     private static final Color COR_EIXOS = new Color(80, 80, 80);          // Cinza para eixos
     
+    // Cores para múltiplas viagens (paleta de cores distintas)
+    private static final Color[] CORES_VIAGENS = {
+        new Color(72, 219, 109),   // Verde neon (Viagem 1)
+        new Color(255, 184, 77),   // Laranja (Viagem 2)
+        new Color(147, 112, 219),  // Roxo médio (Viagem 3)
+        new Color(255, 105, 180),  // Rosa (Viagem 4)
+        new Color(0, 206, 209),    // Turquesa (Viagem 5)
+        new Color(255, 215, 0),    // Dourado (Viagem 6)
+        new Color(50, 205, 50),    // Verde limão (Viagem 7)
+        new Color(255, 99, 71),    // Tomate (Viagem 8)
+        new Color(138, 43, 226),   // Violeta (Viagem 9)
+        new Color(0, 191, 255)     // Azul céu (Viagem 10)
+    };
+    
     // Dados do modelo
     private Ponto central;
     private List<Cliente> clientes;
-    private Rota rota;
+    private List<Rota> rotas;  // ALTERADO: Agora suporta múltiplas rotas
     
     // Parâmetros de transformação World-to-Screen (calculados dinamicamente)
     private double minX, maxX, minY, maxY;  // Limites do mundo
@@ -66,7 +80,7 @@ public class PainelMapa extends JPanel {
     public PainelMapa() {
         this.central = new Ponto(0.0, 0.0);
         this.clientes = new ArrayList<>();
-        this.rota = null;
+        this.rotas = new ArrayList<>();
         setBackground(COR_FUNDO);
     }
     
@@ -91,29 +105,44 @@ public class PainelMapa extends JPanel {
     }
     
     /**
-     * Define a rota calculada a ser desenhada.
+     * Define a lista de rotas calculadas a serem desenhadas.
+     * 
+     * @param rotas Lista de rotas calculadas (múltiplas viagens)
+     */
+    public void setRotas(List<Rota> rotas) {
+        this.rotas = rotas != null ? rotas : new ArrayList<>();
+        repaint();
+    }
+    
+    /**
+     * Define uma única rota (compatibilidade legada).
      * 
      * @param rota Rota calculada
+     * @deprecated Use {@link #setRotas(List)} para múltiplas viagens
      */
+    @Deprecated
     public void setRota(Rota rota) {
-        this.rota = rota;
+        this.rotas = new ArrayList<>();
+        if (rota != null) {
+            this.rotas.add(rota);
+        }
         repaint();
     }
     
     /**
-     * Limpa o mapa (remove rota mas mantém clientes).
+     * Limpa o mapa (remove rotas mas mantém clientes).
      */
     public void limparRota() {
-        this.rota = null;
+        this.rotas.clear();
         repaint();
     }
     
     /**
-     * Limpa completamente o mapa (clientes e rota).
+     * Limpa completamente o mapa (clientes e rotas).
      */
     public void limparTudo() {
         this.clientes.clear();
-        this.rota = null;
+        this.rotas.clear();
         repaint();
     }
     
@@ -234,12 +263,12 @@ public class PainelMapa extends JPanel {
         desenharGrid(g2d);
         desenharEixos(g2d);
         
-        // Desenhar rota PRIMEIRO (camada de fundo)
-        if (rota != null && rota.getPontos() != null && !rota.getPontos().isEmpty()) {
-            desenharRota(g2d);
+        // Desenhar todas as rotas PRIMEIRO (camada de fundo)
+        if (rotas != null && !rotas.isEmpty()) {
+            desenharTodasRotas(g2d);
         }
         
-        // Desenhar pontos POR CIMA da rota
+        // Desenhar pontos POR CIMA das rotas
         desenharCentral(g2d);
         desenharClientes(g2d);
         
@@ -384,70 +413,107 @@ public class PainelMapa extends JPanel {
     }
     
     /**
-     * Desenha a rota calculada com linhas conectando os pontos.
-     * Diferencia visualmente o trajeto de ida e o retorno à central.
+     * Desenha todas as rotas calculadas (múltiplas viagens) com cores diferentes.
+     * Cada viagem tem uma cor distinta para fácil identificação.
      * 
      * @param g2d Contexto gráfico
      */
-    private void desenharRota(Graphics2D g2d) {
-        List<Cliente> pontosRota = rota.getPontos();
-        if (pontosRota == null || pontosRota.isEmpty()) {
+    private void desenharTodasRotas(Graphics2D g2d) {
+        if (rotas == null || rotas.isEmpty()) {
             return;
         }
         
-        // Configurar linha mais grossa para a rota
-        g2d.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        int contadorGlobal = 1; // Contador global de sequência entre todas as viagens
         
-        // Desenhar linha da central ao primeiro cliente e entre clientes
-        Ponto pontoAtual = central;
-        
-        for (int i = 0; i < pontosRota.size(); i++) {
-            Cliente cliente = pontosRota.get(i);
-            Ponto proximoPonto = cliente.getLocalizacao();
+        for (int viagemIndex = 0; viagemIndex < rotas.size(); viagemIndex++) {
+            Rota rota = rotas.get(viagemIndex);
+            List<Cliente> pontosRota = rota.getPontos();
             
-            Point screen1 = worldToScreen(pontoAtual);
-            Point screen2 = worldToScreen(proximoPonto);
+            if (pontosRota == null || pontosRota.isEmpty()) {
+                continue;
+            }
             
-            // Cor da linha (verde para trajeto de ida)
-            g2d.setColor(COR_ROTA_IDA);
+            // Selecionar cor para esta viagem
+            Color corViagem = CORES_VIAGENS[viagemIndex % CORES_VIAGENS.length];
+            Color corRetorno = escurecerCor(corViagem, 0.6f);
             
-            Line2D linha = new Line2D.Double(screen1.x, screen1.y, screen2.x, screen2.y);
-            g2d.draw(linha);
+            // Configurar linha mais grossa para a rota
+            g2d.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             
-            // Desenhar seta indicando direção
-            desenharSeta(g2d, screen1.x, screen1.y, screen2.x, screen2.y, COR_ROTA_IDA);
+            // Desenhar linha da central ao primeiro cliente e entre clientes
+            Ponto pontoAtual = central;
             
-            // Desenhar número da sequência
-            int mx = (screen1.x + screen2.x) / 2;
-            int my = (screen1.y + screen2.y) / 2;
-            g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("Arial", Font.BOLD, 10));
-            g2d.drawString(String.valueOf(i + 1), mx - 5, my - 5);
+            for (int i = 0; i < pontosRota.size(); i++) {
+                Cliente cliente = pontosRota.get(i);
+                Ponto proximoPonto = cliente.getLocalizacao();
+                
+                Point screen1 = worldToScreen(pontoAtual);
+                Point screen2 = worldToScreen(proximoPonto);
+                
+                // Cor da linha para esta viagem
+                g2d.setColor(corViagem);
+                g2d.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                
+                Line2D linha = new Line2D.Double(screen1.x, screen1.y, screen2.x, screen2.y);
+                g2d.draw(linha);
+                
+                // Desenhar seta indicando direção
+                desenharSeta(g2d, screen1.x, screen1.y, screen2.x, screen2.y, corViagem);
+                
+                // Desenhar número da sequência global
+                int mx = (screen1.x + screen2.x) / 2;
+                int my = (screen1.y + screen2.y) / 2;
+                g2d.setColor(Color.WHITE);
+                g2d.setFont(new Font("Arial", Font.BOLD, 10));
+                g2d.drawString(String.valueOf(contadorGlobal), mx - 5, my - 5);
+                
+                pontoAtual = proximoPonto;
+                contadorGlobal++;
+            }
             
-            pontoAtual = proximoPonto;
+            // Desenhar linha de retorno à central (cor mais escura e tracejada)
+            if (!pontosRota.isEmpty()) {
+                Ponto ultimoPonto = pontosRota.get(pontosRota.size() - 1).getLocalizacao();
+                
+                Point screen1 = worldToScreen(ultimoPonto);
+                Point screen2 = worldToScreen(central);
+                
+                // Cor mais escura para retorno
+                g2d.setColor(corRetorno);
+                
+                // Linha tracejada para o retorno
+                float[] tracejado = {12.0f, 8.0f};
+                g2d.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 
+                                              1.0f, tracejado, 0.0f));
+                
+                Line2D linha = new Line2D.Double(screen1.x, screen1.y, screen2.x, screen2.y);
+                g2d.draw(linha);
+                
+                // Desenhar seta de retorno
+                desenharSeta(g2d, screen1.x, screen1.y, screen2.x, screen2.y, corRetorno);
+                
+                // Indicador de viagem
+                int mx = (screen1.x + screen2.x) / 2;
+                int my = (screen1.y + screen2.y) / 2;
+                g2d.setColor(Color.WHITE);
+                g2d.setFont(new Font("Arial", Font.BOLD, 9));
+                g2d.drawString("V" + (viagemIndex + 1), mx + 10, my);
+            }
         }
-        
-        // Desenhar linha de retorno à central (cor e estilo diferentes)
-        if (!pontosRota.isEmpty()) {
-            Ponto ultimoPonto = pontosRota.get(pontosRota.size() - 1).getLocalizacao();
-            
-            Point screen1 = worldToScreen(ultimoPonto);
-            Point screen2 = worldToScreen(central);
-            
-            // Cor laranja para retorno
-            g2d.setColor(COR_ROTA_VOLTA);
-            
-            // Linha tracejada para o retorno
-            float[] tracejado = {12.0f, 8.0f};
-            g2d.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 
-                                          1.0f, tracejado, 0.0f));
-            
-            Line2D linha = new Line2D.Double(screen1.x, screen1.y, screen2.x, screen2.y);
-            g2d.draw(linha);
-            
-            // Desenhar seta de retorno
-            desenharSeta(g2d, screen1.x, screen1.y, screen2.x, screen2.y, COR_ROTA_VOLTA);
-        }
+    }
+    
+    /**
+     * Escurece uma cor multiplicando seus componentes RGB por um fator.
+     * 
+     * @param cor Cor original
+     * @param fator Fator de escurecimento (0.0 a 1.0)
+     * @return Cor escurecida
+     */
+    private Color escurecerCor(Color cor, float fator) {
+        int r = Math.max(0, (int)(cor.getRed() * fator));
+        int g = Math.max(0, (int)(cor.getGreen() * fator));
+        int b = Math.max(0, (int)(cor.getBlue() * fator));
+        return new Color(r, g, b);
     }
     
     /**
@@ -486,6 +552,7 @@ public class PainelMapa extends JPanel {
     
     /**
      * Desenha uma legenda explicativa no canto superior esquerdo.
+     * Atualizada para mostrar as cores das múltiplas viagens.
      * 
      * @param g2d Contexto gráfico
      */
@@ -517,34 +584,45 @@ public class PainelMapa extends JPanel {
         
         y += espacamento;
         
-        // Rota ida
-        g2d.setColor(COR_ROTA_IDA);
-        g2d.setStroke(new BasicStroke(3));
-        g2d.drawLine(x, y - 4, x + 14, y - 4);
-        g2d.setColor(Color.WHITE);
-        g2d.drawString("Rota (Entrega)", x + 22, y + 3);
+        // Mostrar cores das viagens (se houver rotas)
+        if (rotas != null && !rotas.isEmpty()) {
+            for (int i = 0; i < Math.min(rotas.size(), 5); i++) {
+                Color corViagem = CORES_VIAGENS[i % CORES_VIAGENS.length];
+                g2d.setColor(corViagem);
+                g2d.setStroke(new BasicStroke(3));
+                g2d.drawLine(x, y - 4, x + 14, y - 4);
+                g2d.setColor(Color.WHITE);
+                g2d.drawString("Viagem " + (i + 1), x + 22, y + 3);
+                y += espacamento;
+            }
+            
+            if (rotas.size() > 5) {
+                g2d.setColor(new Color(180, 180, 180));
+                g2d.drawString("... e mais " + (rotas.size() - 5) + " viagem(ns)", x, y + 3);
+                y += espacamento;
+            }
+        }
         
-        y += espacamento;
-        
-        // Rota volta
-        g2d.setColor(COR_ROTA_VOLTA);
+        // Retorno (tracejado)
+        g2d.setColor(new Color(150, 150, 150));
         float[] tracejado = {6.0f, 4.0f};
         g2d.setStroke(new BasicStroke(3, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 
                                       1.0f, tracejado, 0.0f));
         g2d.drawLine(x, y - 4, x + 14, y - 4);
         g2d.setColor(Color.WHITE);
-        g2d.drawString("Retorno", x + 22, y + 3);
+        g2d.drawString("Retorno à Central", x + 22, y + 3);
     }
     
     /**
      * Desenha estatísticas da visualização no canto superior direito.
+     * Atualizado para mostrar informações de múltiplas viagens.
      * 
      * @param g2d Contexto gráfico
      */
     private void desenharEstatisticas(Graphics2D g2d) {
         if (clientes.isEmpty()) return;
         
-        int x = getWidth() - 180;
+        int x = getWidth() - 200;
         int y = 20;
         int espacamento = 16;
         
@@ -558,11 +636,36 @@ public class PainelMapa extends JPanel {
         g2d.drawString(String.format("Clientes: %d", clientes.size()), x, y);
         y += espacamento;
         
-        if (rota != null && rota.getPontos() != null) {
-            g2d.drawString(String.format("Atendidos: %d", rota.getPontos().size()), x, y);
+        if (rotas != null && !rotas.isEmpty()) {
+            // Calcular total de clientes atendidos em todas as viagens
+            int totalAtendidos = 0;
+            double distanciaTotal = 0;
+            double cargaTotal = 0;
+            
+            for (Rota rota : rotas) {
+                if (rota.getPontos() != null) {
+                    totalAtendidos += rota.getPontos().size();
+                }
+                distanciaTotal += rota.getDistanciaTotal();
+                cargaTotal += rota.getCargaTotalColetada();
+            }
+            
+            g2d.drawString(String.format("Atendidos: %d", totalAtendidos), x, y);
+            y += espacamento;
+            
+            g2d.setColor(new Color(72, 219, 109));
+            g2d.drawString(String.format("Viagens: %d", rotas.size()), x, y);
+            y += espacamento;
+            
+            g2d.setColor(new Color(180, 180, 180));
+            g2d.drawString(String.format("Dist. Total: %.1f", distanciaTotal), x, y);
+            y += espacamento;
+            
+            g2d.drawString(String.format("Carga Total: %.1f", cargaTotal), x, y);
             y += espacamento;
         }
         
+        g2d.setColor(new Color(150, 150, 150));
         g2d.drawString(String.format("Escala: %.2fx", scale), x, y);
         y += espacamento;
         

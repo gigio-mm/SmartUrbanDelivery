@@ -11,6 +11,9 @@ import com.unifor.util.Distancia;
 
 /**
  * Classe responsável pela roteirização de entregas utilizando heurísticas gulosas.
+ * 
+ * REFATORADO: Agora garante que TODOS os clientes sejam atendidos através de múltiplas viagens.
+ * O veículo retorna à central para descarregar e recarregar quando necessário.
  */
 public class Roteirizador {
 
@@ -21,79 +24,171 @@ public class Roteirizador {
     }
 
     /**
-     * Calcula a rota de entrega otimizada utilizando algoritmo guloso.
+     * Calcula as rotas de entrega otimizadas utilizando algoritmo guloso.
      * 
-     * O algoritmo segue estas etapas:
-     * 1. Ordena os clientes por prioridade (decrescente) usando QuickSort
-     * 2. Seleciona iterativamente o vizinho mais próximo que satisfaz as restrições
-     * 3. Atualiza o veículo (carga e autonomia) a cada parada
-     * 4. Adiciona o retorno à central ao final da rota
+     * NOVO COMPORTAMENTO:
+     * - Garante que TODOS os clientes sejam atendidos
+     * - Quando o veículo não pode atender mais clientes (capacidade/autonomia),
+     *   retorna à central, reseta e inicia uma nova viagem
+     * - Retorna uma lista de rotas representando todas as viagens do dia
      * 
      * @param clientes Lista de clientes a serem atendidos
      * @param veiculo Veículo que realizará as entregas
      * @param central Ponto da central de distribuição
-     * @return Rota calculada com os clientes visitados, distância total e carga coletada
+     * @return Lista de Rotas calculadas (múltiplas viagens)
+     * @throws RuntimeException se algum cliente for inviável (demanda > capacidade ou fora da autonomia)
      */
-    public Rota calcularRota(List<Cliente> clientes, Veiculo veiculo, Ponto central) {
+    public List<Rota> calcularRotas(List<Cliente> clientes, Veiculo veiculo, Ponto central) {
         // Validações de entrada
         if (clientes == null || veiculo == null || central == null) {
-            return new Rota();
+            return new ArrayList<>();
         }
 
-        // PREPARAÇÃO: Criar nova rota e configurar estado inicial
-        Rota rota = new Rota();
-        Ponto localAtual = central;
-        
+        if (clientes.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // VALIDAÇÃO CRÍTICA: Verificar se todos os clientes são viáveis
+        validarViabilidadeClientes(clientes, veiculo, central);
+
+        // Lista de rotas (múltiplas viagens)
+        List<Rota> rotas = new ArrayList<>();
+
         // Criar cópia da lista de clientes para não modificar a original
         List<Cliente> naoVisitados = new ArrayList<>(clientes);
 
         // ORDENAÇÃO INICIAL: Ordenar por prioridade decrescente (REQUISITO)
         Ordenacao.quickSort(naoVisitados);
 
-        // LOOP GULOSO: Processar clientes até que não haja mais candidatos viáveis
+        // LOOP PRINCIPAL: Enquanto houver clientes não atendidos
         while (!naoVisitados.isEmpty()) {
-            // Encontrar o próximo cliente mais próximo que satisfaz as restrições
-            Cliente proximoCliente = encontrarVizinhoMaisProximo(localAtual, naoVisitados, veiculo, central);
+            // Iniciar nova viagem
+            Rota rotaAtual = new Rota();
+            
+            // Resetar veículo para nova viagem
+            veiculo.setCargaAtual(0.0);
+            veiculo.setAutonomiaRestante(veiculo.getAutonomiaMaxima());
+            veiculo.setLocalizacaoAtual(central);
+            
+            Ponto localAtual = central;
 
-            // Se nenhum cliente for viável, interromper o loop
-            if (proximoCliente == null) {
-                break;
+            // LOOP GULOSO: Processar clientes até que não haja mais candidatos viáveis nesta viagem
+            while (!naoVisitados.isEmpty()) {
+                // Encontrar o próximo cliente mais próximo que satisfaz as restrições
+                Cliente proximoCliente = encontrarVizinhoMaisProximo(localAtual, naoVisitados, veiculo, central);
+
+                // Se nenhum cliente for viável nesta viagem, encerrar e iniciar nova
+                if (proximoCliente == null) {
+                    break;
+                }
+
+                // Calcular distância até o próximo cliente
+                double distanciaPercorrida = Distancia.calcularDistanciaEuclidiana(
+                    localAtual, 
+                    proximoCliente.getLocalizacao()
+                );
+
+                // Adicionar cliente à rota
+                rotaAtual.adicionarCliente(proximoCliente);
+
+                // Atualizar veículo: aumentar carga e diminuir autonomia
+                veiculo.adicionarCarga(proximoCliente.getDemandaCarga());
+                veiculo.consumirAutonomia(distanciaPercorrida);
+
+                // Atualizar distância total da rota
+                rotaAtual.setDistanciaTotal(rotaAtual.getDistanciaTotal() + distanciaPercorrida);
+
+                // Atualizar localização atual
+                localAtual = proximoCliente.getLocalizacao();
+
+                // Remover cliente da lista de não visitados
+                naoVisitados.remove(proximoCliente);
             }
 
-            // Calcular distância até o próximo cliente
-            double distanciaPercorrida = Distancia.calcularDistanciaEuclidiana(
-                localAtual, 
-                proximoCliente.getLocalizacao()
-            );
+            // RETORNO À BASE: Calcular trajeto de volta para a central
+            if (!rotaAtual.getPontos().isEmpty()) {
+                double distanciaRetorno = Distancia.calcularDistanciaEuclidiana(localAtual, central);
+                
+                // Atualizar autonomia do veículo com o retorno
+                veiculo.consumirAutonomia(distanciaRetorno);
+                
+                // Atualizar distância total da rota com o retorno
+                rotaAtual.setDistanciaTotal(rotaAtual.getDistanciaTotal() + distanciaRetorno);
 
-            // Adicionar cliente à rota
-            rota.adicionarCliente(proximoCliente);
-
-            // Atualizar veículo: aumentar carga e diminuir autonomia
-            veiculo.adicionarCarga(proximoCliente.getDemandaCarga());
-            veiculo.consumirAutonomia(distanciaPercorrida);
-
-            // Atualizar distância total da rota
-            rota.setDistanciaTotal(rota.getDistanciaTotal() + distanciaPercorrida);
-
-            // Atualizar localização atual
-            localAtual = proximoCliente.getLocalizacao();
-
-            // Remover cliente da lista de não visitados
-            naoVisitados.remove(proximoCliente);
+                // Adicionar rota à lista de rotas
+                rotas.add(rotaAtual);
+            }
         }
 
-        // RETORNO À BASE: Calcular trajeto de volta para a central
-        double distanciaRetorno = Distancia.calcularDistanciaEuclidiana(localAtual, central);
-        
-        // Atualizar autonomia do veículo com o retorno
-        veiculo.consumirAutonomia(distanciaRetorno);
-        
-        // Atualizar distância total da rota com o retorno
-        rota.setDistanciaTotal(rota.getDistanciaTotal() + distanciaRetorno);
+        return rotas;
+    }
 
-        // Retornar rota completa
-        return rota;
+    /**
+     * Método legado para compatibilidade - retorna uma única rota.
+     * 
+     * @deprecated Use {@link #calcularRotas(List, Veiculo, Ponto)} para garantir atendimento completo.
+     * @param clientes Lista de clientes a serem atendidos
+     * @param veiculo Veículo que realizará as entregas
+     * @param central Ponto da central de distribuição
+     * @return Primeira rota calculada (pode não atender todos os clientes)
+     */
+    @Deprecated
+    public Rota calcularRota(List<Cliente> clientes, Veiculo veiculo, Ponto central) {
+        List<Rota> rotas = calcularRotas(clientes, veiculo, central);
+        return rotas.isEmpty() ? new Rota() : rotas.get(0);
+    }
+
+    /**
+     * Valida se todos os clientes são viáveis para atendimento.
+     * 
+     * Um cliente é INVIÁVEL se:
+     * 1. Sua demanda excede a capacidade máxima do veículo
+     * 2. A distância ida+volta (central->cliente->central) excede a autonomia máxima
+     * 
+     * @param clientes Lista de clientes a validar
+     * @param veiculo Veículo com as restrições
+     * @param central Ponto da central
+     * @throws RuntimeException se algum cliente for inviável
+     */
+    private void validarViabilidadeClientes(List<Cliente> clientes, Veiculo veiculo, Ponto central) {
+        for (int i = 0; i < clientes.size(); i++) {
+            Cliente cliente = clientes.get(i);
+            
+            if (cliente == null || cliente.getLocalizacao() == null) {
+                continue;
+            }
+
+            // Validação 1: Demanda vs Capacidade
+            if (cliente.getDemandaCarga() > veiculo.getCapacidadeMaxima()) {
+                throw new RuntimeException(String.format(
+                    "CLIENTE INVIÁVEL: Cliente [%d] com demanda de %.2f kg excede a capacidade máxima do veículo (%.2f kg). " +
+                    "Impossível atender este cliente com o veículo atual.",
+                    i + 1,
+                    cliente.getDemandaCarga(),
+                    veiculo.getCapacidadeMaxima()
+                ));
+            }
+
+            // Validação 2: Distância ida+volta vs Autonomia
+            double distanciaIdaVolta = 2 * Distancia.calcularDistanciaEuclidiana(
+                central, 
+                cliente.getLocalizacao()
+            );
+
+            if (distanciaIdaVolta > veiculo.getAutonomiaMaxima()) {
+                throw new RuntimeException(String.format(
+                    "CLIENTE INVIÁVEL: Cliente [%d] na posição (%.2f, %.2f) está a %.2f km da central. " +
+                    "A distância ida+volta (%.2f km) excede a autonomia máxima do veículo (%.2f km). " +
+                    "Impossível atender este cliente com o veículo atual.",
+                    i + 1,
+                    cliente.getLocalizacao().getX(),
+                    cliente.getLocalizacao().getY(),
+                    distanciaIdaVolta / 2,
+                    distanciaIdaVolta,
+                    veiculo.getAutonomiaMaxima()
+                ));
+            }
+        }
     }
 
     /**

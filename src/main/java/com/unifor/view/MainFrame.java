@@ -52,7 +52,7 @@ public class MainFrame extends JFrame {
     private Central central;
     private List<Cliente> clientes;
     private Veiculo veiculo;
-    private Rota rotaCalculada;
+    private List<Rota> rotasCalculadas;  // ALTERADO: Agora suporta múltiplas rotas
     
     // Configurações padrão
     private static final int QUANTIDADE_PADRAO = 20;
@@ -77,7 +77,7 @@ public class MainFrame extends JFrame {
         this.clientes = new ArrayList<>();
         this.veiculo = new Veiculo(CAPACIDADE_VEICULO, AUTONOMIA_VEICULO, 
                                    central.getLocalizacao(), 0.0, AUTONOMIA_VEICULO);
-        this.rotaCalculada = null;
+        this.rotasCalculadas = new ArrayList<>();
     }
     
     /**
@@ -276,7 +276,7 @@ public class MainFrame extends JFrame {
             
             // Limpar dados anteriores
             clientes.clear();
-            rotaCalculada = null;
+            rotasCalculadas.clear();
             painelMapa.limparTudo();
             
             // Gerar clientes aleatórios
@@ -332,6 +332,7 @@ public class MainFrame extends JFrame {
     
     /**
      * Calcula a rota otimizada usando o algoritmo de roteirização.
+     * REFATORADO: Agora usa calcularRotas() que garante atendimento de TODOS os clientes.
      */
     private void calcularRota() {
         if (clientes.isEmpty()) {
@@ -350,19 +351,26 @@ public class MainFrame extends JFrame {
             // Medir tempo de execução
             long tempoInicio = System.nanoTime();
             
-            // Executar algoritmo de roteirização
+            // Executar algoritmo de roteirização (NOVO: múltiplas rotas)
             Roteirizador roteirizador = new Roteirizador();
-            rotaCalculada = roteirizador.calcularRota(clientes, veiculo, central.getLocalizacao());
+            rotasCalculadas = roteirizador.calcularRotas(clientes, veiculo, central.getLocalizacao());
             
             long tempoFim = System.nanoTime();
             double tempoExecucao = (tempoFim - tempoInicio) / 1_000_000.0; // Converter para ms
             
-            // Atualizar mapa
-            painelMapa.setRota(rotaCalculada);
+            // Atualizar mapa (NOVO: setRotas em vez de setRota)
+            painelMapa.setRotas(rotasCalculadas);
             
             // Gerar relatório
             gerarRelatorio(tempoExecucao);
             
+        } catch (RuntimeException ex) {
+            // Captura exceção de cliente inviável
+            JOptionPane.showMessageDialog(this,
+                ex.getMessage(),
+                "Cliente Inviável",
+                JOptionPane.ERROR_MESSAGE);
+            ex.printStackTrace();
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this,
                 "Erro ao calcular rota: " + ex.getMessage(),
@@ -374,27 +382,51 @@ public class MainFrame extends JFrame {
     
     /**
      * Gera e exibe o relatório detalhado da execução.
+     * REFATORADO: Agora soma as distâncias e cargas de TODAS as viagens.
      * 
      * @param tempoExecucao Tempo de execução em milissegundos
      */
     private void gerarRelatorio(double tempoExecucao) {
-        if (rotaCalculada == null) {
+        if (rotasCalculadas == null || rotasCalculadas.isEmpty()) {
             return;
         }
         
-        int clientesAtendidos = rotaCalculada.getPontos().size();
+        // Calcular totais de todas as viagens
+        int clientesAtendidos = 0;
+        double distanciaTotal = 0;
+        double cargaTotal = 0;
+        
+        for (Rota rota : rotasCalculadas) {
+            clientesAtendidos += rota.getPontos().size();
+            distanciaTotal += rota.getDistanciaTotal();
+            cargaTotal += rota.getCargaTotalColetada();
+        }
+        
         int clientesTotais = clientes.size();
-        double distanciaTotal = rotaCalculada.getDistanciaTotal();
-        double cargaTotal = rotaCalculada.getCargaTotalColetada();
+        int numeroViagens = rotasCalculadas.size();
         double percentualAtendimento = (clientesTotais > 0) ? 
             (clientesAtendidos * 100.0 / clientesTotais) : 0;
         
         StringBuilder relatorio = new StringBuilder();
-        relatorio.append("🎯 ROTA CALCULADA COM SUCESSO!\n");
+        relatorio.append("🎯 ROTAS CALCULADAS COM SUCESSO!\n");
         relatorio.append("═══════════════════════════════\n\n");
         
         relatorio.append("⏱️ DESEMPENHO:\n");
         relatorio.append(String.format("- Tempo de execução: %.2f ms\n\n", tempoExecucao));
+        
+        relatorio.append("🚚 VIAGENS REALIZADAS: ").append(numeroViagens).append("\n");
+        relatorio.append("───────────────────────────────\n");
+        
+        // Detalhes de cada viagem
+        for (int i = 0; i < rotasCalculadas.size(); i++) {
+            Rota rota = rotasCalculadas.get(i);
+            relatorio.append(String.format("  Viagem %d: %d cliente(s) | %.2f km | %.2f kg\n",
+                i + 1,
+                rota.getPontos().size(),
+                rota.getDistanciaTotal(),
+                rota.getCargaTotalColetada()));
+        }
+        relatorio.append("\n");
         
         relatorio.append("📍 ATENDIMENTO:\n");
         relatorio.append(String.format("- Clientes atendidos: %d de %d\n", 
@@ -402,9 +434,9 @@ public class MainFrame extends JFrame {
         relatorio.append(String.format("- Taxa de atendimento: %.1f%%\n\n", 
             percentualAtendimento));
         
-        relatorio.append("LOGÍSTICA:\n");
+        relatorio.append("📦 LOGÍSTICA TOTAL:\n");
         relatorio.append(String.format("- Distância total: %.2f unidades\n", distanciaTotal));
-        relatorio.append(String.format("- Carga coletada: %.2f unidades\n", cargaTotal));
+        relatorio.append(String.format("- Carga entregue: %.2f unidades\n", cargaTotal));
         relatorio.append(String.format("- Capacidade veículo: %.0f unidades\n", 
             CAPACIDADE_VEICULO));
         relatorio.append(String.format("- Autonomia veículo: %.0f unidades\n\n", 
@@ -415,12 +447,17 @@ public class MainFrame extends JFrame {
             double distanciaMedia = distanciaTotal / clientesAtendidos;
             relatorio.append(String.format("- Distância média/cliente: %.2f\n", distanciaMedia));
         }
+        if (numeroViagens > 1) {
+            double clientesPorViagem = (double) clientesAtendidos / numeroViagens;
+            relatorio.append(String.format("- Média clientes/viagem: %.1f\n", clientesPorViagem));
+        }
         
-        if (clientesAtendidos < clientesTotais) {
-            int naoAtendidos = clientesTotais - clientesAtendidos;
-            relatorio.append(String.format("\n⚠️ ATENÇÃO:\n"));
-            relatorio.append(String.format("- %d cliente(s) não atendido(s)\n", naoAtendidos));
-            relatorio.append("- Possíveis causas: capacidade ou\n  autonomia insuficientes\n");
+        // Verificar se todos foram atendidos
+        if (clientesAtendidos == clientesTotais) {
+            relatorio.append("\n✅ TODOS OS CLIENTES FORAM ATENDIDOS!");
+        } else {
+            relatorio.append(String.format("\n⚠️ ATENÇÃO: %d cliente(s) não atendido(s)\n", 
+                clientesTotais - clientesAtendidos));
         }
         
         areaLog.setText(relatorio.toString());
@@ -432,7 +469,7 @@ public class MainFrame extends JFrame {
      */
     private void limparTudo() {
         clientes.clear();
-        rotaCalculada = null;
+        rotasCalculadas.clear();
         painelMapa.limparTudo();
         btnCalcularRota.setEnabled(false);
         
